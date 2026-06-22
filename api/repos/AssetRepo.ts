@@ -181,17 +181,23 @@ export const AssetRepo = {
     return res.changes > 0;
   },
 
-  listOversized(): { id: string; name: string; metadata_json: string }[] {
+  listOversized(): { id: string; name: string; totalSize: number }[] {
     return db.prepare(
-      `SELECT id, name, metadata_json FROM assets
-       WHERE status != 'archived' AND json_extract(metadata_json, '$.isOversized') = 1`
-    ).all() as { id: string; name: string; metadata_json: string }[];
+      `SELECT a.id, a.name,
+              COALESCE(SUM(json_extract(v.metadata_json, '$.fileSize')), 0) AS totalSize
+       FROM assets a
+       LEFT JOIN asset_versions v ON v.asset_id = a.id
+       WHERE a.status != 'archived' AND json_extract(a.metadata_json, '$.isOversized') = 1
+       GROUP BY a.id, a.name`
+    ).all() as { id: string; name: string; totalSize: number }[];
   },
 
   sumFileSizes(): number {
     const row = db.prepare(
-      `SELECT COALESCE(SUM(json_extract(metadata_json, '$.fileSize')), 0) AS total
-       FROM assets WHERE status != 'archived'`
+      `SELECT COALESCE(SUM(json_extract(v.metadata_json, '$.fileSize')), 0) AS total
+       FROM asset_versions v
+       INNER JOIN assets a ON a.id = v.asset_id
+       WHERE a.status != 'archived'`
     ).get() as { total: number };
     return row.total || 0;
   },

@@ -189,11 +189,11 @@ export const ArchiveService = {
 export const StorageService = {
   getStatus(): StorageStatus {
     const used = AssetRepo.sumFileSizes();
-    const threshold = (TOTAL_STORAGE_BYTES * STORAGE_WARNING_PERCENT) / 100;
-    const overAssets = AssetRepo.listOversized().map(r => {
-      const m = JSON.parse(r.metadata_json);
-      return { id: r.id, name: r.name, size: m.fileSize as number };
-    });
+    const overAssets = AssetRepo.listOversized().map(r => ({
+      id: r.id,
+      name: r.name,
+      size: r.totalSize,
+    }));
     return {
       totalBytes: TOTAL_STORAGE_BYTES,
       usedBytes: used,

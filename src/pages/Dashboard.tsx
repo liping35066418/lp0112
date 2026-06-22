@@ -171,6 +171,8 @@ export default function DashboardPage() {
       push('success', `已归档 ${r.archived} 个素材`);
       setSelected(new Set());
       setList(list.filter(a => !selected.has(a.id)));
+      const fresh = await api.storageStatus().catch(() => null);
+      if (fresh) setStatus(fresh);
     } catch (err) { push('error', handleErr(err)); }
     finally { setArchiving(false); }
   }
@@ -204,27 +206,59 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {status?.oversizedAssets && status.oversizedAssets.length > 0 && (
-        <div className="glass border-amber-500/30 p-4 flex items-start gap-4 bg-amber-500/5">
-          <AlertTriangle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5 animate-pulse-slow" />
-          <div className="flex-1">
-            <div className="text-sm text-amber-300 font-semibold mb-1">存储预警</div>
-            <div className="text-xs text-slate-400">
-              共 <span className="text-amber-400 font-semibold">{status.oversizedAssets.length}</span> 个超大资源，
-              占用存储 <span className="text-amber-400 font-semibold">{formatBytes(status.oversizedAssets.reduce((s, x) => s + x.size, 0))}</span>。
-              建议清理或归档。
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {status.oversizedAssets.slice(0, 6).map(o => (
-                <button key={o.id} onClick={() => nav(`/asset/${o.id}`)}
-                  className="chip bg-space-900/70 border-amber-500/30 text-amber-200 hover:border-amber-400 hover:text-amber-100 transition-all cursor-pointer">
-                  <HardDrive className="w-3 h-3" /> {o.name} <span className="opacity-70">({formatBytes(o.size)})</span>
-                </button>
-              ))}
+      {status && (() => {
+        const usagePercent = status.totalBytes > 0 ? (status.usedBytes / status.totalBytes) * 100 : 0;
+        const isOverThreshold = usagePercent >= status.warningThreshold;
+        const hasOversized = status.oversizedAssets && status.oversizedAssets.length > 0;
+        const shouldShowBanner = isOverThreshold || hasOversized;
+        if (!shouldShowBanner) return null;
+        const bannerClass = isOverThreshold
+          ? 'border-rose-500/40 bg-rose-500/10'
+          : 'border-amber-500/30 bg-amber-500/5';
+        const titleClass = isOverThreshold ? 'text-rose-300' : 'text-amber-300';
+        const valueClass = isOverThreshold ? 'text-rose-400' : 'text-amber-400';
+        const iconClass = isOverThreshold ? 'text-rose-400' : 'text-amber-400';
+        return (
+          <div className={`glass ${bannerClass} p-4 flex items-start gap-4`}>
+            <AlertTriangle className={`w-6 h-6 ${iconClass} shrink-0 mt-0.5 animate-pulse-slow`} />
+            <div className="flex-1 min-w-0">
+              <div className={`text-sm font-semibold mb-1 ${titleClass}`}>
+                {isOverThreshold ? '总容量水位告警' : '存储预警'}
+              </div>
+              <div className="text-xs text-slate-400">
+                总容量使用率：
+                <span className={`font-semibold ${valueClass}`}>{usagePercent.toFixed(2)}%</span>
+                （{formatBytes(status.usedBytes)} / {formatBytes(status.totalBytes)}），
+                告警水位 <span className="font-semibold text-slate-300">{status.warningThreshold}%</span>。
+                {isOverThreshold && <span className="text-rose-300 ml-1">⚠ 当前已超过预警水位，请立即清理或扩容！</span>}
+              </div>
+              <div className="mt-2 h-2 bg-space-800/80 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-500 ${isOverThreshold ? 'bg-gradient-to-r from-rose-500 to-rose-400' : 'bg-gradient-to-r from-amber-500 to-amber-400'}`}
+                  style={{ width: `${Math.min(usagePercent, 100)}%` }}
+                />
+              </div>
+              {hasOversized && (
+                <>
+                  <div className="mt-3 text-xs text-slate-400">
+                    另有 <span className={`font-semibold ${valueClass}`}>{status.oversizedAssets.length}</span> 个超大资源，
+                    合计占用 <span className={`font-semibold ${valueClass}`}>{formatBytes(status.oversizedAssets.reduce((s, x) => s + x.size, 0))}</span>，
+                    建议优先清理或归档。
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {status.oversizedAssets.slice(0, 6).map(o => (
+                      <button key={o.id} onClick={() => nav(`/asset/${o.id}`)}
+                        className="chip bg-space-900/70 border-amber-500/30 text-amber-200 hover:border-amber-400 hover:text-amber-100 transition-all cursor-pointer">
+                        <HardDrive className="w-3 h-3" /> {o.name} <span className="opacity-70">({formatBytes(o.size)})</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
