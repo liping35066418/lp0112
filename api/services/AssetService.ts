@@ -204,11 +204,29 @@ export const StorageService = {
 };
 
 export const AssetQueryService = {
-  list(filters: { type?: AssetType; status?: AssetStatus; search?: string; uploaderId?: string; archived?: boolean } = {}): Asset[] {
+  list(filters: { type?: AssetType; status?: AssetStatus; search?: string; uploaderId?: string; archived?: boolean; tags?: string[] } = {}): Asset[] {
     return AssetRepo.list(filters);
   },
 
   detail(id: string): (AssetDetail | null) {
     return AssetRepo.getDetailById(id);
+  },
+};
+
+export const TagService = {
+  updateTags(assetId: string, tags: string[], userId: string): { ok: boolean; message?: string; lockedBy?: User } {
+    const asset = AssetRepo.findById(assetId);
+    if (!asset) return { ok: false, message: '素材不存在' };
+    const lockR = LockService.verifyUnlockedOrOwned(assetId, userId);
+    if (!lockR.ok) {
+      return { ok: false, message: `素材正在被${lockR.lockedBy?.displayName || '他人'}编辑中`, lockedBy: lockR.lockedBy };
+    }
+    const cleaned = [...new Set(tags.map(t => t.trim()).filter(Boolean))];
+    const ok = AssetRepo.updateTags(assetId, cleaned);
+    return ok ? { ok: true } : { ok: false, message: '更新标签失败' };
+  },
+
+  listAllTags(archived?: boolean): { tag: string; count: number }[] {
+    return AssetRepo.listAllTagsWithCount(archived);
   },
 };

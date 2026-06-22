@@ -142,7 +142,7 @@ export const AssetRepo = {
     return asset;
   },
 
-  list(filters: { type?: AssetType; status?: AssetStatus; search?: string; uploaderId?: string; archived?: boolean } = {}): Asset[] {
+  list(filters: { type?: AssetType; status?: AssetStatus; search?: string; uploaderId?: string; archived?: boolean; tags?: string[] } = {}): Asset[] {
     const clauses: string[] = [];
     const params: unknown[] = [];
     if (filters.archived === true) {
@@ -168,10 +168,48 @@ export const AssetRepo = {
       const s = `%${filters.search}%`;
       params.push(s, s);
     }
+    if (filters.tags && filters.tags.length > 0) {
+      for (const tag of filters.tags) {
+        clauses.push('tags_json LIKE ?');
+        params.push(`%${JSON.stringify(tag).slice(1, -1)}%`);
+      }
+    }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const sql = `SELECT * FROM assets ${where} ORDER BY updated_at DESC`;
     const rows = db.prepare(sql).all(...params) as AssetRow[];
     return rows.map(r => mapAsset(r));
+  },
+
+  updateTags(id: string, tags: string[]): boolean {
+    const res = db.prepare(
+      `UPDATE assets SET tags_json = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(JSON.stringify(tags), id);
+    return res.changes > 0;
+  },
+
+  listAllTagsWithCount(archived?: boolean): { tag: string; count: number }[] {
+    const statusClause = archived === true
+      ? 'WHERE status = ?'
+      : archived === false
+        ? 'WHERE status != ?'
+        : '';
+    const statusParam = archived !== undefined ? (archived ? 'archived' : 'archived') : null;
+    const sql = `SELECT tags_json FROM assets ${statusClause}`;
+    const rows = statusParam
+      ? db.prepare(sql).all(statusParam) as { tags_json: string }[]
+      : db.prepare(sql).all() as { tags_json: string }[];
+    const map = new Map<string, number>();
+    for (const row of rows) {
+      const tags = parseJSON<string[]>(row.tags_json, []);
+      for (const t of tags) {
+        const clean = t.trim();
+        if (!clean) continue;
+        map.set(clean, (map.get(clean) || 0) + 1);
+      }
+    }
+    return Array.from(map.entries())
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   },
 
   updateStatus(id: string, status: AssetStatus, archivedAt?: string): boolean {

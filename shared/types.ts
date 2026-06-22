@@ -134,5 +134,14 @@ export const OVERSIZED_THRESHOLDS = {
   TEXTURE_PIXELS: 8192 * 8192,
 };
 
+export interface TagCount {
+  tag: string;
+  count: number;
+}
+
+export interface UpdateTagsRequest {
+  tags: string[];
+}
+
 export const TOTAL_STORAGE_BYTES = 100 * 1024 * 1024 * 1024;
 export const STORAGE_WARNING_PERCENT = 80;

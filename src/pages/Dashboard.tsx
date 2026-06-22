@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Image as ImageIcon, FileQuestion, AlertTriangle, Lock, Eye,
-  Plus, Layers, Users, HardDrive, Clock, Archive as ArchiveIcon,
+  Plus, Layers, Users, HardDrive, Clock, Archive as ArchiveIcon, Tag, X,
 } from 'lucide-react';
 import api, { handleErr } from '@/api/client.js';
-import type { Asset, AssetType, StorageStatus } from '../../../shared/types.js';
+import type { Asset, StorageStatus, TagCount } from '../../../shared/types.js';
 import { useAuth, useFilters, useToast } from '@/store/auth.js';
 import {
-  formatBytes, formatNumber, typeColor, typeLabel, roleLabel, roleColor,
+  formatBytes, typeColor, typeLabel, roleLabel, roleColor,
   randomGradient, relativeTime, summarizeMeta,
 } from '@/lib/utils.js';
 
@@ -84,6 +84,16 @@ function AssetCard({ a, onToggle, selected }: { a: Asset; onToggle: (id: string)
             </span>
           </div>
         </div>
+        {a.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {a.tags.slice(0, 4).map((t, i) => (
+              <span key={i} className="chip !text-[10px] !py-0 border-brand-400/20 bg-brand-400/5 text-brand-200">#{t}</span>
+            ))}
+            {a.tags.length > 4 && (
+              <span className="chip !text-[10px] !py-0 border-space-700 bg-space-900/60 text-slate-400">+{a.tags.length - 4}</span>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-3 gap-2 pt-2 border-t border-space-700/50">
           {meta.length > 0 ? meta.slice(0, 3).map((m, i) => (
             <div key={i} className="text-center">
@@ -114,11 +124,63 @@ function AssetCard({ a, onToggle, selected }: { a: Asset; onToggle: (id: string)
   );
 }
 
+function TagFilterBar({
+  allTags, selectedTags, onToggle, onClear,
+}: {
+  allTags: TagCount[];
+  selectedTags: string[];
+  onToggle: (tag: string) => void;
+  onClear: () => void;
+}) {
+  if (allTags.length === 0) return null;
+  return (
+    <div className="glass p-3">
+      <div className="flex items-start gap-3">
+        <div className="flex items-center gap-2 pt-1 shrink-0">
+          <Tag className="w-4 h-4 text-brand-400" />
+          <span className="text-xs font-medium text-slate-300 uppercase tracking-wider">标签筛选</span>
+        </div>
+        <div className="flex-1 flex flex-wrap gap-1.5">
+          {allTags.map(({ tag, count }) => {
+            const active = selectedTags.includes(tag);
+            return (
+              <button
+                key={tag}
+                onClick={() => onToggle(tag)}
+                className={`chip transition-all cursor-pointer inline-flex items-center gap-1.5
+                  ${active
+                    ? 'bg-brand-400/20 border-brand-400 text-brand-200 shadow-glow-sm'
+                    : 'border-space-700 bg-space-900/50 text-slate-400 hover:border-brand-400/40 hover:text-brand-200 hover:bg-brand-400/5'}`}
+              >
+                <span className={active ? 'text-brand-300' : 'text-slate-500'}>#</span>
+                <span>{tag}</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full
+                  ${active ? 'bg-brand-400/30 text-brand-100' : 'bg-space-700/80 text-slate-400'}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {selectedTags.length > 0 && (
+          <button
+            onClick={onClear}
+            className="chip border-space-700 text-slate-400 hover:border-rose-500/40 hover:text-rose-300 hover:bg-rose-500/10 transition-all cursor-pointer shrink-0 !py-1"
+          >
+            <X className="w-3.5 h-3.5" /> 清除
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [list, setList] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<StorageStatus | null>(null);
-  const { assetType, search, archived, setAssetType, setArchived } = useFilters();
+  const [allTags, setAllTags] = useState<TagCount[]>([]);
+  const { assetType, search, archived, selectedTags, setAssetType, setArchived, toggleTag, clearTags } = useFilters();
   const push = useToast(s => s.push);
   const nav = useNavigate();
   const canEdit = useAuth(s => s.canEdit());
@@ -129,6 +191,7 @@ export default function DashboardPage() {
   const filtered = useMemo(() => {
     let r = list;
     if (assetType !== 'all') r = r.filter(x => x.type === assetType);
+    if (selectedTags.length > 0) r = r.filter(x => selectedTags.every(t => x.tags.includes(t)));
     const s = search.trim().toLowerCase();
     if (s) r = r.filter(x =>
       x.name.toLowerCase().includes(s) ||
@@ -136,22 +199,31 @@ export default function DashboardPage() {
       (x.uploader?.displayName || '').toLowerCase().includes(s)
     );
     return r;
-  }, [list, assetType, search]);
+  }, [list, assetType, search, selectedTags]);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [r1, r2] = await Promise.all([
+        const [r1, r2, r3] = await Promise.all([
           api.listAssets({ archived: archived === true ? true : archived === false ? false : undefined }),
           api.storageStatus().catch(() => null),
+          api.listTags({ archived: archived === true ? true : archived === false ? false : undefined }).catch(() => ({ items: [] })),
         ]);
         setList(r1.items);
-        setStatus(r2);
+        if (r2) setStatus(r2);
+        setAllTags(r3.items);
       } catch (err) { push('error', handleErr(err)); }
       finally { setLoading(false); }
     })();
   }, [archived, push]);
+
+  async function refreshTags() {
+    try {
+      const r = await api.listTags({ archived: archived === true ? true : archived === false ? false : undefined });
+      setAllTags(r.items);
+    } catch { /* ignore */ }
+  }
 
   const toggleSel = (id: string) =>
     setSelected(prev => {
@@ -169,8 +241,10 @@ export default function DashboardPage() {
     try {
       const r = await api.archive([...selected], '批量归档');
       push('success', `已归档 ${r.archived} 个素材`);
+      const archivedIds = new Set(selected);
       setSelected(new Set());
-      setList(list.filter(a => !selected.has(a.id)));
+      setList(prev => prev.filter(a => !archivedIds.has(a.id)));
+      await refreshTags();
       const fresh = await api.storageStatus().catch(() => null);
       if (fresh) setStatus(fresh);
     } catch (err) { push('error', handleErr(err)); }
@@ -178,21 +252,22 @@ export default function DashboardPage() {
   }
 
   const stats = useMemo(() => {
-    const model = list.filter(x => x.type === 'model').length;
-    const tex = list.filter(x => x.type === 'texture').length;
-    const warn = list.filter(x => x.status === 'warning').length;
-    const editors = new Set(list.map(x => x.uploaderId)).size;
-    return { model, tex, warn, editors };
-  }, [list]);
+    const model = filtered.filter(x => x.type === 'model').length;
+    const tex = filtered.filter(x => x.type === 'texture').length;
+    const warn = filtered.filter(x => x.status === 'warning').length;
+    const editors = new Set(filtered.map(x => x.uploaderId)).size;
+    const total = filtered.length;
+    return { model, tex, warn, editors, total };
+  }, [filtered]);
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: '3D模型总数', value: stats.model, icon: Box, color: 'from-brand-400 to-indigo-500' },
-          { label: '贴图总数', value: stats.tex, icon: ImageIcon, color: 'from-emerald-400 to-teal-500' },
+          { label: '当前筛选总数', value: stats.total, icon: Layers, color: 'from-cyan-400 to-blue-500' },
+          { label: '3D模型', value: stats.model, icon: Box, color: 'from-brand-400 to-indigo-500' },
+          { label: '贴图', value: stats.tex, icon: ImageIcon, color: 'from-emerald-400 to-teal-500' },
           { label: '超大资源预警', value: stats.warn, icon: AlertTriangle, color: 'from-amber-400 to-rose-500', pulse: stats.warn > 0 },
-          { label: '活跃贡献者', value: stats.editors, icon: Users, color: 'from-violet-400 to-pink-500' },
         ].map((s, i) => (
           <div key={i} className="glass p-4 flex items-center gap-4 hover:border-brand-400/30 transition-all">
             <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${s.color} grid place-items-center shadow-lg shrink-0 ${s.pulse ? 'animate-pulse-slow' : ''}`}>
@@ -269,7 +344,7 @@ export default function DashboardPage() {
                   ? 'bg-brand-400/15 border-brand-400 text-brand-300 shadow-glow-sm'
                   : 'border-space-700 text-slate-400 hover:border-space-600 hover:text-slate-300'}`}
             >
-              {t === 'all' ? '全部' : t === 'model' ? '3D模型' : t === 'texture' ? '贴图' : '其他'}
+              {t === 'all' ? '全部类型' : t === 'model' ? '3D模型' : t === 'texture' ? '贴图' : '其他'}
             </button>
           ))}
           <div className="w-px h-5 bg-space-700 mx-1" />
@@ -307,6 +382,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <TagFilterBar
+        allTags={allTags}
+        selectedTags={selectedTags}
+        onToggle={toggleTag}
+        onClear={clearTags}
+      />
+
       {canEdit && selected.size > 0 && (
         <div className="glass p-3 flex items-center justify-between gap-4 animate-slide-up sticky top-20 z-20">
           <div className="flex items-center gap-3 text-sm">
@@ -316,6 +398,11 @@ export default function DashboardPage() {
             <span className="text-slate-400">
               已选 <span className="text-brand-300 font-semibold">{selected.size}</span> / {filtered.length} 个素材
             </span>
+            {selectedTags.length > 0 && (
+              <span className="chip border-brand-400/30 bg-brand-400/5 text-brand-300">
+                <Tag className="w-3 h-3" /> 标签筛选: {selectedTags.join(', ')}
+              </span>
+            )}
           </div>
           <button onClick={batchArchive} disabled={archiving} className="btn-warn">
             <ArchiveIcon className="w-4 h-4" />
@@ -342,11 +429,18 @@ export default function DashboardPage() {
           <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-brand-400/20 to-indigo-500/20 border border-brand-400/20 grid place-items-center mb-5">
             <Layers className="w-10 h-10 text-brand-300" />
           </div>
-          <h3 className="font-display text-xl text-white mb-2">暂无素材</h3>
+          <h3 className="font-display text-xl text-white mb-2">暂无匹配素材</h3>
           <p className="text-slate-500 text-sm max-w-sm mb-6">
-            {search ? '没有找到匹配的素材，换个关键词试试？' : canEdit ? '点击右上角上传按钮，将你的第一个3D资产导入系统' : '等待管理员或编辑者上传素材后即可浏览'}
+            {search || selectedTags.length > 0
+              ? '当前筛选条件下没有找到匹配的素材，试试调整关键词或清除标签筛选。'
+              : canEdit ? '点击右上角上传按钮，将你的第一个3D资产导入系统' : '等待管理员或编辑者上传素材后即可浏览'}
           </p>
-          {canEdit && !search && (
+          {selectedTags.length > 0 && (
+            <button onClick={clearTags} className="btn-outline mb-3">
+              <X className="w-4 h-4" /> 清除标签筛选
+            </button>
+          )}
+          {canEdit && !search && selectedTags.length === 0 && (
             <button onClick={() => nav('/upload')} className="btn-primary">
               <Plus className="w-4 h-4" /> 上传第一个素材
             </button>
@@ -365,6 +459,9 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3 mb-4">
             <Users className="w-5 h-5 text-brand-400" />
             <h3 className="font-display text-white">团队成员速览</h3>
+            <span className="chip border-space-700 bg-space-900/60 text-slate-400 text-[10px]">
+              当前筛选贡献者 {stats.editors} 人
+            </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {[

@@ -1,6 +1,6 @@
 import type {
   Asset, AssetDetail, AssetType, LoginRequest, LoginResponse, StorageStatus,
-  User, UserRole, UploadResult, BatchArchiveRequest, ArchiveRecord,
+  User, UserRole, UploadResult, BatchArchiveRequest, ArchiveRecord, TagCount,
 } from '../../shared/types.js';
 
 const BASE = '/api';
@@ -37,13 +37,27 @@ export const api = {
 
   me: () => request<{ user: User }>('/auth/me', { headers: headers() }),
 
-  listAssets: (q: { type?: AssetType; search?: string; archived?: boolean } = {}) => {
+  listAssets: (q: { type?: AssetType; search?: string; archived?: boolean; tags?: string[] } = {}) => {
     const sp = new URLSearchParams();
     if (q.type) sp.set('type', q.type);
     if (q.search) sp.set('search', q.search);
     if (q.archived !== undefined) sp.set('archived', String(q.archived));
+    if (q.tags && q.tags.length > 0) sp.set('tags', q.tags.join(','));
     return request<{ items: Asset[]; total: number }>(`/assets?${sp}`, { headers: headers() });
   },
+
+  listTags: (q: { archived?: boolean } = {}) => {
+    const sp = new URLSearchParams();
+    if (q.archived !== undefined) sp.set('archived', String(q.archived));
+    return request<{ items: TagCount[] }>(`/tags?${sp}`, { headers: headers() });
+  },
+
+  updateAssetTags: (assetId: string, tags: string[]) =>
+    request<{ success: boolean; asset: AssetDetail }>(`/assets/${assetId}/tags`, {
+      method: 'PATCH',
+      headers: headers(),
+      body: JSON.stringify({ tags }),
+    }),
 
   assetDetail: (id: string) =>
     request<AssetDetail>(`/assets/${id}`, { headers: headers() }),

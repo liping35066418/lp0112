@@ -67,19 +67,28 @@ interface FilterState {
   search: string;
   assetType: 'all' | 'model' | 'texture' | 'other';
   archived: boolean | undefined;
+  selectedTags: string[];
   setSearch: (s: string) => void;
   setType: (t: FilterState['type']) => void;
   setAssetType: (t: FilterState['assetType']) => void;
   setArchived: (a: boolean | undefined) => void;
+  toggleTag: (tag: string) => void;
+  clearTags: () => void;
 }
 
-export const useFilters = create<FilterState>((set) => ({
+export const useFilters = create<FilterState>((set, get) => ({
   type: 'all',
   search: '',
   assetType: 'all',
   archived: false,
+  selectedTags: [],
   setSearch: (s) => set({ search: s }),
   setType: (t) => set({ type: t }),
   setAssetType: (t) => set({ assetType: t }),
   setArchived: (a) => set({ archived: a }),
+  toggleTag: (tag) => {
+    const prev = get().selectedTags;
+    set({ selectedTags: prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag] });
+  },
+  clearTags: () => set({ selectedTags: [] }),
 }));

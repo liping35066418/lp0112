@@ -3,8 +3,8 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { authMiddleware, AuthRequest, requireRole } from '../middleware/auth.js';
-import { AssetUploadService, AssetQueryService, VersionService, LockService, ArchiveService } from '../services/AssetService.js';
-import type { AssetType, BatchArchiveRequest } from '../../shared/types.js';
+import { AssetUploadService, AssetQueryService, VersionService, LockService, ArchiveService, TagService } from '../services/AssetService.js';
+import type { AssetType, BatchArchiveRequest, UpdateTagsRequest } from '../../shared/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,16 +24,45 @@ if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 const router = Router();
 
 router.get('/assets', authMiddleware, (req: AuthRequest, res: Response) => {
-  const { type, status, search, uploaderId, archived } = req.query as {
-    type?: AssetType; status?: string; search?: string; uploaderId?: string; archived?: string;
+  const { type, status, search, uploaderId, archived, tags } = req.query as {
+    type?: AssetType; status?: string; search?: string; uploaderId?: string; archived?: string; tags?: string;
   };
+  const tagList = tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : undefined;
   const items = AssetQueryService.list({
     type,
     search,
     uploaderId,
     archived: archived === 'true' ? true : archived === 'false' ? false : undefined,
+    tags: tagList,
   });
   res.json({ items, total: items.length, page: 1, pageSize: items.length || 20 });
+});
+
+router.get('/tags', authMiddleware, (req: AuthRequest, res: Response) => {
+  const { archived } = req.query as { archived?: string };
+  const items = TagService.listAllTags(
+    archived === 'true' ? true : archived === 'false' ? false : undefined
+  );
+  res.json({ items });
+});
+
+router.patch('/assets/:id/tags', authMiddleware, requireRole('admin', 'editor'), (req: AuthRequest, res: Response) => {
+  const { tags } = (req.body || {}) as UpdateTagsRequest;
+  if (!Array.isArray(tags)) {
+    res.status(400).json({ code: 'PERMISSION_DENIED', message: 'tags 参数必须为数组' });
+    return;
+  }
+  const r = TagService.updateTags(req.params.id, tags, req.userId!);
+  if (!r.ok) {
+    if (r.lockedBy) {
+      res.status(409).json({ code: 'ASSET_LOCKED', message: r.message, lockedBy: r.lockedBy });
+    } else {
+      res.status(400).json({ code: 'NOT_FOUND', message: r.message });
+    }
+    return;
+  }
+  const fresh = AssetQueryService.detail(req.params.id);
+  res.json({ success: true, asset: fresh });
 });
 
 router.get('/assets/:id', authMiddleware, (req: AuthRequest, res: Response) => {

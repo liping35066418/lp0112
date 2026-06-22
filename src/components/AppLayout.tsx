@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Upload, Users, Archive, LogOut, Search, Bell,
   Box, HardDrive, AlertTriangle,
 } from 'lucide-react';
-import { useAuth } from '@/store/auth.js';
+import { useAuth, useFilters } from '@/store/auth.js';
 import { roleLabel, roleColor, formatBytes } from '@/lib/utils.js';
 import { useEffect, useState } from 'react';
 import api from '@/api/client.js';
@@ -61,6 +61,8 @@ function TopBar() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<StorageStatus | null>(null);
   const [menu, setMenu] = useState(false);
+  const search = useFilters(s => s.search);
+  const setSearch = useFilters(s => s.setSearch);
   useEffect(() => {
     api.storageStatus().then(setStatus).catch(() => {});
   }, []);
@@ -70,7 +72,13 @@ function TopBar() {
     <header className="sticky top-0 z-30 h-16 border-b border-space-700/60 bg-space-900/75 backdrop-blur-xl flex items-center gap-4 px-6">
       <div className="relative flex-1 max-w-xl">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-        <input type="text" placeholder="搜索素材名称、标签..." className="input pl-9 h-10" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="搜索素材名称、标签..."
+          className="input pl-9 h-10"
+        />
       </div>
       <div className="flex items-center gap-3">
         {status && (

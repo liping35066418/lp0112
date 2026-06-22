@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import {
   ArrowLeft, RotateCcw, AlertTriangle, Lock, Unlock, Upload, Archive,
   Grid3X3, Eye, Box, Maximize2, Layers, HardDrive, Tag, User as UserIcon,
-  ChevronRight, Download, Settings, Undo2, Shapes,
+  ChevronRight, Download, Settings, Undo2, Shapes, X, Plus,
 } from 'lucide-react';
 import api, { handleErr } from '@/api/client.js';
 import type { AssetDetail, AssetVersion } from '../../../shared/types.js';
@@ -144,6 +144,7 @@ export default function AssetDetailPage() {
   const push = useToast(s => s.push);
   const canEdit = useAuth(s => s.canEdit());
   const isAdmin = useAuth(s => s.isAdmin());
+  const currentUserId = useAuth(s => s.user?.id);
   const [asset, setAsset] = useState<AssetDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [wireframe, setWireframe] = useState(false);
@@ -153,6 +154,8 @@ export default function AssetDetailPage() {
   const [showUploadVersion, setShowUploadVersion] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [tagInput, setTagInput] = useState('');
+  const [savingTags, setSavingTags] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -225,6 +228,41 @@ export default function AssetDetailPage() {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = '';
     }
+  }
+
+  const isLockedByOther = asset?.isLocked && asset.lockedBy && asset.lockedBy !== currentUserId;
+  const canEditTags = canEdit && !isLockedByOther;
+
+  async function addTag() {
+    if (!asset || !canEditTags) return;
+    const tag = tagInput.trim();
+    if (!tag) return;
+    if (asset.tags.includes(tag)) { push('warning', '该标签已存在'); setTagInput(''); return; }
+    const newTags = [...asset.tags, tag];
+    setSavingTags(true);
+    try {
+      const r = await api.updateAssetTags(asset.id, newTags);
+      if (r.success) {
+        setAsset(r.asset);
+        setTagInput('');
+        push('success', '标签已添加');
+      }
+    } catch (err) { push('error', handleErr(err)); }
+    finally { setSavingTags(false); }
+  }
+
+  async function removeTag(tagToRemove: string) {
+    if (!asset || !canEditTags) return;
+    const newTags = asset.tags.filter(t => t !== tagToRemove);
+    setSavingTags(true);
+    try {
+      const r = await api.updateAssetTags(asset.id, newTags);
+      if (r.success) {
+        setAsset(r.asset);
+        push('success', '标签已删除');
+      }
+    } catch (err) { push('error', handleErr(err)); }
+    finally { setSavingTags(false); }
   }
 
   if (loading) {
@@ -408,19 +446,62 @@ export default function AssetDetailPage() {
             </div>
           </div>
 
-          {asset.tags.length > 0 && (
-            <div className="glass p-5">
-              <div className="flex items-center gap-2 mb-3">
+          <div className="glass p-5">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
                 <Tag className="w-4 h-4 text-brand-400" />
                 <h3 className="font-display text-sm text-white">标签</h3>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {asset.tags.map((t, i) => (
-                  <span key={i} className="chip border-brand-400/30 text-brand-200 bg-brand-400/10">#{t}</span>
-                ))}
-              </div>
+              {isLockedByOther && (
+                <span className="chip bg-rose-500/20 border-rose-500/40 text-rose-300 text-[11px]">
+                  <Lock className="w-3 h-3" /> {asset?.lockedByUser?.displayName}编辑中
+                </span>
+              )}
             </div>
-          )}
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {asset.tags.length === 0 && !canEditTags && (
+                <span className="text-xs text-slate-500 italic">暂无标签</span>
+              )}
+              {asset.tags.length === 0 && canEditTags && (
+                <span className="text-xs text-slate-500 italic">还没有标签，在下方添加</span>
+              )}
+              {asset.tags.map((t, i) => (
+                <span key={i} className={`chip border-brand-400/30 text-brand-200 bg-brand-400/10 inline-flex items-center gap-1 ${canEditTags ? 'pr-1' : ''}`}>
+                  #{t}
+                  {canEditTags && (
+                    <button
+                      onClick={() => removeTag(t)}
+                      disabled={savingTags}
+                      className="w-4 h-4 rounded-full hover:bg-rose-500/30 hover:text-rose-200 grid place-items-center transition-colors disabled:opacity-50"
+                      title="删除标签"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+            {canEditTags && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addTag(); }}
+                  placeholder="输入标签后回车添加"
+                  className="input h-8 text-sm flex-1"
+                  disabled={savingTags}
+                />
+                <button
+                  onClick={addTag}
+                  disabled={savingTags || !tagInput.trim()}
+                  className="btn-primary !px-3 !py-1.5 text-sm disabled:opacity-50"
+                >
+                  <Plus className="w-3.5 h-3.5" /> 添加
+                </button>
+              </div>
+            )}
+          </div>
 
           {asset.metadata.isOversized && (
             <div className="glass p-4 border-amber-500/30 bg-amber-500/5">
